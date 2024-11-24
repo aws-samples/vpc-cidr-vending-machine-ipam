@@ -1,0 +1,119 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: VPC CIDR vending machine topic, per region
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  Environment:
+    Description: Environment
+    Type: String
+
+  CidrVendingMachineArn:
+    Description: CIDR vending machine ARN.
+    Type: String
+
+  OrgID:
+    Description: AWS Organizations ID.
+    Type: String
+
+
+Resources:
+  PermissionManagerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AllowLogging
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+        - PolicyName: ManagePermissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:AddPermission
+                  - lambda:RemovePermission
+                Resource: !Ref CidrVendingMachineArn
+
+  PermissionManager:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: CIDR vending machine permission manager that allows a SNS topic to trigger the CIDR vending machine from a different region.
+      Role: !GetAtt PermissionManagerRole.Arn
+      Handler: cidr-vending-machine-permission-manager.lambda_handler
+      CodeUri: ../src/
+      Runtime: python3.11
+      Timeout: 30
+
+  InvocationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub CIDR-Vending-Machine-${Environment}
+      Subscription:
+        - Protocol: lambda
+          Endpoint: !Ref CidrVendingMachineArn
+
+  InvocationTopicPermission:
+    Type: Custom::InvocationTopicPermission
+    Properties:
+      ServiceToken: !GetAtt PermissionManager.Arn
+      SourceArn: !Ref InvocationTopic
+      FunctionName: !Ref CidrVendingMachineArn
+      FunctionRegion: !Select [3, !Split [":", !Ref CidrVendingMachineArn]]
+
+  InvocationTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref InvocationTopic
+      PolicyDocument:
+        Statement:
+          - Sid: AllowAdministration
+            Effect: Allow
+            Principal:
+              AWS: "*"
+            Action:
+              - sns:GetTopicAttributes
+              - sns:SetTopicAttributes
+              - sns:AddPermission
+              - sns:RemovePermission
+              - sns:DeleteTopic
+              - sns:Subscribe
+              - sns:ListSubscriptionsByTopic
+              - sns:Publish
+              - sns:Receive
+            Resource: !Ref InvocationTopic
+            Condition:
+              StringEquals:
+                AWS:SourceOwner: !Ref AWS::AccountId
+          - Sid: AllowPublication
+            Effect: Allow
+            Principal:
+              AWS: "*"
+            Action:
+              - sns:Publish
+            Resource: !Ref InvocationTopic
+            Condition:
+              StringEquals:
+                aws:PrincipalOrgID: !Ref OrgID
+
+Outputs:
+  InvocationTopicArn:
+    Description: CIDR vending machine invocation topic ARN.
+    Value: !Ref InvocationTopic

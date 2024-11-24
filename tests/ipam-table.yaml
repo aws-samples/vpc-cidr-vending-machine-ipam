@@ -1,0 +1,36 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+BillingMode: PAY_PER_REQUEST
+TableName: Cidrs-local
+AttributeDefinitions:
+  - AttributeName: cidr
+    AttributeType: S
+  - AttributeName: subnet_mask
+    AttributeType: N
+  - AttributeName: allocation_status
+    AttributeType: S
+  - AttributeName: stack_id
+    AttributeType: S
+  - AttributeName: logical_resource_id
+    AttributeType: S                 
+KeySchema:
+  - AttributeName: cidr
+    KeyType: HASH
+GlobalSecondaryIndexes:
+  - IndexName: GSI-SubnetMask
+    KeySchema:
+      - AttributeName: subnet_mask
+        KeyType: HASH
+      - AttributeName: allocation_status
+        KeyType: RANGE
+    Projection:
+      ProjectionType: KEYS_ONLY
+  - IndexName: GSI-Stack
+    KeySchema:
+      - AttributeName: stack_id
+        KeyType: HASH
+      - AttributeName: logical_resource_id
+        KeyType: RANGE
+    Projection:
+      ProjectionType: ALL

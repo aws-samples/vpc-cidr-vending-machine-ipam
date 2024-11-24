@@ -1,0 +1,164 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: VPC CIDR vending machine core resources
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  TablePrefix:
+    Description: CIDR table name prefix.
+    Type: String
+    Default: Cidrs
+
+  Environment:
+    Description: Environment (pool name)
+    Type: String
+
+  CloudWatchLogsRetentionPeriod:
+    Description: Specifies the number of days you want to retain the CloudWatch logs
+    Type: Number
+    Default: 731
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653]
+
+
+Resources:
+  CidrTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      TableName: !Sub ${TablePrefix}-${Environment}
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: True
+      AttributeDefinitions:
+        - AttributeName: cidr
+          AttributeType: S
+        - AttributeName: subnet_mask
+          AttributeType: N
+        - AttributeName: allocation_status
+          AttributeType: S
+        - AttributeName: stack_id
+          AttributeType: S
+        - AttributeName: logical_resource_id
+          AttributeType: S                 
+      KeySchema:
+        - AttributeName: cidr
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: GSI-SubnetMask
+          KeySchema:
+            - AttributeName: subnet_mask
+              KeyType: HASH
+            - AttributeName: allocation_status
+              KeyType: RANGE
+          Projection:
+            ProjectionType: KEYS_ONLY
+        - IndexName: GSI-Stack
+          KeySchema:
+            - AttributeName: stack_id
+              KeyType: HASH
+            - AttributeName: logical_resource_id
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  CidrVendingMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AllowLogging
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*
+        - PolicyName: AllowDynamoDBAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                  - dynamodb:UpdateItem
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub ${CidrTable.Arn}
+                  - !Sub ${CidrTable.Arn}/*
+        - PolicyName: AllowPublishCloudWatchMetrics
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+
+  CloudWatchLogActions:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: !Ref CloudWatchLogsRetentionPeriod
+      LogGroupName: !Sub VPC-CIDR-vending-machine-IPAM-${Environment}
+
+
+  CidrVendingMachine:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: CIDR vending machine
+      Role: !GetAtt CidrVendingMachineRole.Arn
+      Handler: cidr-vending-machine.lambda_handler
+      CodeUri: ../src/
+      Runtime: python3.11
+      Timeout: 60
+      Environment:
+        Variables:
+          CIDR_TABLE: !Ref CidrTable
+          LOG_GROUP: !Ref CloudWatchLogActions
+
+
+  CloudWatchMetricsUpdate:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Metrics update for the CIDR vending machine
+      Role: !GetAtt CidrVendingMachineRole.Arn
+      Handler: cidr-vending-machine.metric_update
+      CodeUri: ../src/
+      Runtime: python3.11
+      Timeout: 60
+      Environment:
+        Variables:
+          CIDR_TABLE: !Ref CidrTable
+      Events:
+        MetricUpdateSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 day)
+
+
+Outputs:
+  CidrVendingMachineArn:
+    Description: CIDR vending machine Lambda ARN
+    Value: !GetAtt CidrVendingMachine.Arn
+
+  CidrTableArn:
+    Description: CIDR DynamoDB table ARN
+    Value: !GetAtt CidrTable.Arn
+    
+  CloudWatchLogGroup:
+    Description: CloudWatch Log Group
+    Value: !Ref CloudWatchLogActions

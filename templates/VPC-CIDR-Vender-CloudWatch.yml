@@ -1,0 +1,332 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudWatch Dashboard for VPC CIDR vending machine IPAM
+
+Parameters:
+  Environment:
+    Description: Environment (pool name)
+    Type: String
+
+  LowIPSpace24AlarmThreshold:
+    Description: Minimum number of /24 left before a CloudWatch alarm is triggered.
+    Type: Number
+    Default: 25
+
+  LowIPSpaceAlertEmail01:
+    Description: (Optional) Email address for sending low IPAM netspace alerts.
+    Type: String
+    Default: ''
+  LowIPSpaceAlertEmail02:
+    Description: (Optional) Email address for sending low IPAM netspace alerts.
+    Type: String
+    Default: ''
+  LowIPSpaceAlertEmail03:
+    Description: (Optional) Email address for sending low IPAM netspace alerts.
+    Type: String
+    Default: ''
+
+
+Conditions:
+  LowIPSpaceAlertEmail01: !Not [ !Equals [ !Ref LowIPSpaceAlertEmail01, '' ] ]
+  LowIPSpaceAlertEmail02: !Not [ !Equals [ !Ref LowIPSpaceAlertEmail02, '' ] ]
+  LowIPSpaceAlertEmail03: !Not [ !Equals [ !Ref LowIPSpaceAlertEmail03, '' ] ]
+
+
+Mappings:
+  Dashboard:
+    Queries:
+      # If pasting these queries in the CloudWatch insights console, do a Find & Replace for:
+      #   \n|   ->   |
+      #   \"    ->   "
+      EventTimeline: >-
+        stats count(*) as EventCount by bin(10m)
+
+      EventCountStatus: >-
+        stats count(*) as Action by action      
+
+      NewEvents: >-
+        filter action=\"ADD\" or action=\"REMOVE\" or action=\"RENAME\"
+        \n| fields @timestamp, @message
+        \n| sort @timestamp desc 
+        \n| display @timestamp, action, cidr, vpc_name, account_id, message
+
+
+      FailedEvents: >-
+        filter action=\"FAILED\"
+        \n| fields @timestamp, @message
+        \n| sort @timestamp desc 
+        \n| display @timestamp, action, vpc_name, account_id, stack_name, message
+
+
+    Settings:
+      StartTime: "-PT72H"
+      LogGroupPrefix: "VPC-CIDR-vending-machine-IPAM-"
+
+
+
+Resources:
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub VPC-CIDR-Vender-IPAM-${Environment}
+      DashboardBody: !Sub 
+        - |
+            {
+              "start": "${StartTime}",
+              "periodOverride": "auto",
+              "widgets": [
+                {
+                  "type":"text",
+                  "width":24,
+                  "height":1,
+                  "properties": {
+                    "markdown": "# VPC vending IPAM - ${Environment}"
+                  }
+                },
+
+                {
+                  "type":"metric",
+                  "width":6,
+                  "height":4,
+                  "properties": {
+                    "title": "Used nets",
+                    "view": "timeSeries",
+                    "region": "${AWS::Region}",
+                    "stacked": true,
+                    "period": 60,
+                    "stat": "Maximum",
+                    "metrics": [
+                      [ { "expression": "FILL(METRICS(), REPEAT)", "label": "", "id": "e2" } ],
+                      [ "VPC-Cidr-Vending-IPAM","NumberOfUsedEntries","Table","${DDBTable}", {"id":"n2", "visible":false} ] 
+                    ]
+                  }
+                },
+
+                {
+                  "type":"metric",
+                  "width":3,
+                  "height":4,
+                  "properties": {
+                    "title": "Used entries",
+                    "view": "singleValue",
+                    "region": "${AWS::Region}",
+                    "period": 60,
+                    "stat": "Maximum",
+                    "metrics": [
+                      [ { "expression": "FILL(METRICS(), REPEAT)", "label": "", "id": "e1" } ],
+                      [ "VPC-Cidr-Vending-IPAM","NumberOfUsedEntries","Table","${DDBTable}", {"id":"n1", "visible":false} ] 
+                    ]
+                  }
+                },
+
+                {
+                  "type":"metric",
+                  "width":3,
+                  "height":4,
+                  "properties": {
+                    "title": "/24 nets left",
+                    "view": "singleValue",
+                    "region": "${AWS::Region}",
+                    "period": 60,
+                    "stat": "Minimum",
+                    "metrics": [
+                      [ { "expression": "FILL(METRICS(), REPEAT)", "label": "", "id": "e1" } ],
+                      [ "VPC-Cidr-Vending-IPAM","NumberOfPotential24Networks","Table","${DDBTable}", {"id":"n24", "visible":false} ] 
+                    ]
+                  }
+                },
+
+                {
+                  "type":"metric",
+                  "width":3,
+                  "height":4,
+                  "properties": {
+                    "title": "or /23 nets left",
+                    "view": "singleValue",
+                    "region": "${AWS::Region}",
+                    "period": 60,
+                    "stat": "Minimum",
+                    "metrics": [
+                      [ { "expression": "FILL(METRICS(), REPEAT)", "label": "", "id": "e1" } ],
+                      [ "VPC-Cidr-Vending-IPAM","NumberOfPotential23Networks","Table","${DDBTable}", {"id":"n24", "visible":false} ] 
+                    ]
+                  }
+                },
+
+                {
+                  "type":"metric",
+                  "width":3,
+                  "height":4,
+                  "properties": {
+                    "title": "or /22 nets left",
+                    "view": "singleValue",
+                    "region": "${AWS::Region}",
+                    "period": 60,
+                    "stat": "Minimum",
+                    "metrics": [
+                      [ { "expression": "FILL(METRICS(), REPEAT)", "label": "", "id": "e1" } ],
+                      [ "VPC-Cidr-Vending-IPAM","NumberOfPotential22Networks","Table","${DDBTable}", {"id":"n24", "visible":false} ] 
+                    ]
+                  }
+                },
+
+                {
+                  "type":"metric",
+                  "width":3,
+                  "height":4,
+                  "properties": {
+                    "title": "or /21 nets left",
+                    "view": "singleValue",
+                    "region": "${AWS::Region}",
+                    "period": 60,
+                    "stat": "Minimum",
+                    "metrics": [
+                      [ { "expression": "FILL(METRICS(), REPEAT)", "label": "", "id": "e1" } ],
+                      [ "VPC-Cidr-Vending-IPAM","NumberOfPotential21Networks","Table","${DDBTable}", {"id":"n24", "visible":false} ] 
+                    ]
+                  }
+                },
+
+                {
+                  "type":"metric",
+                  "width":3,
+                  "height":4,
+                  "properties": {
+                    "title": "or /20 nets left",
+                    "view": "singleValue",
+                    "region": "${AWS::Region}",
+                    "period": 60,
+                    "stat": "Minimum",
+                    "metrics": [
+                      [ { "expression": "FILL(METRICS(), REPEAT)", "label": "", "id": "e1" } ],
+                      [ "VPC-Cidr-Vending-IPAM","NumberOfPotential20Networks","Table","${DDBTable}", {"id":"n24", "visible":false} ] 
+                    ]
+                  }
+                },
+
+
+                {
+                  "type":"log",
+                  "width":18,
+                  "height":5,                  
+                  "properties": {
+                    "view": "timeSeries",                    
+                    "region": "${AWS::Region}",
+                    "title": "Activity timeline",
+                    "query": "SOURCE '${LogGroup}' | ${QueryEventTimeline}",
+                    "stacked": true
+                  }
+                },
+
+
+                {
+                  "type":"log",
+                  "width":6,
+                  "height":5,
+                  "properties": {
+                    "view": "pie",                      
+                    "region": "${AWS::Region}",
+                    "title": "Actions",
+                    "query": "SOURCE '${LogGroup}' | ${QueryEventCountStatus}"
+                  }
+                },
+
+                {
+                  "type":"log",
+                  "width":24,
+                  "height":6,
+                  "view": "table",
+                  "properties": {
+                    "region": "${AWS::Region}",
+                    "title": "Activity",
+                    "query": "SOURCE '${LogGroup}' | ${QueryNewEvents}"
+                  }
+                },
+
+
+                {
+                  "type":"log",
+                  "width":24,
+                  "height":6,
+                  "view": "table",
+                  "properties": {
+                    "region": "${AWS::Region}",
+                    "title": "Failed events",
+                    "query": "SOURCE '${LogGroup}' | ${QueryFailedEvents}"
+                  }
+                }
+
+              ]
+            }
+        - StartTime: !FindInMap [ Dashboard, Settings, StartTime ]
+          LogGroup: !Sub 
+            - "${LogGroupPrefix}${Environment}"
+            - LogGroupPrefix: !FindInMap [ Dashboard, Settings, LogGroupPrefix ]
+          DDBTable: !Sub Cidrs-${Environment}
+          QueryEventTimeline: !FindInMap [ Dashboard, Queries, EventTimeline ]
+          QueryEventCountStatus: !FindInMap [ Dashboard, Queries, EventCountStatus ]
+          QueryNewEvents: !FindInMap [ Dashboard, Queries, NewEvents ]
+          QueryFailedEvents: !FindInMap [ Dashboard, Queries, FailedEvents ]
+
+
+##########
+# Alarms #
+##########
+
+  AlarmLow24Space:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: !Sub "VPC CIDR Vender IPAM alarm: Less than ${LowIPSpace24AlarmThreshold} /24 nets available in the ${Environment} pool"
+      ComparisonOperator: LessThanThreshold
+      Namespace: VPC-Cidr-Vending-IPAM
+      MetricName: NumberOfPotential24Networks
+      Statistic: Minimum
+      Threshold: !Ref LowIPSpace24AlarmThreshold
+      Dimensions: 
+        - Name: Table
+          Value: !Sub "Cidrs-${Environment}"
+      EvaluationPeriods: 1
+      Period: 600
+      TreatMissingData: ignore
+      Unit: Count
+      AlarmActions:
+        - !Ref AlertTopic
+
+
+
+
+
+##########
+# Alerts #
+##########
+
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !Sub VPC CIDR Vender IPAM ${Environment} alerts
+
+  AlertSubscription01:
+    Type: AWS::SNS::Subscription
+    Condition: LowIPSpaceAlertEmail01
+    Properties:
+      Protocol: email
+      TopicArn: !Ref AlertTopic         
+      Endpoint: !Ref LowIPSpaceAlertEmail01
+  AlertSubscription02:
+    Type: AWS::SNS::Subscription
+    Condition: LowIPSpaceAlertEmail02
+    Properties:
+      Protocol: email
+      TopicArn: !Ref AlertTopic         
+      Endpoint: !Ref LowIPSpaceAlertEmail02
+  AlertSubscription03:
+    Type: AWS::SNS::Subscription
+    Condition: LowIPSpaceAlertEmail03
+    Properties:
+      Protocol: email
+      TopicArn: !Ref AlertTopic         
+      Endpoint: !Ref LowIPSpaceAlertEmail03
+

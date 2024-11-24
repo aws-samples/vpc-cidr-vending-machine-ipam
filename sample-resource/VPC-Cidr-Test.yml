@@ -1,0 +1,54 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: Tester for the VPC CIDR vending machine, does not create a VPC, only an SSM parameter
+
+Parameters:
+  NetworkAccountID:
+    Type: String
+    Description: The Account ID of the Network account  
+
+  SubnetMask:
+    Type: String
+    Description: Subnet mask to allocate
+    Default: 24
+
+  Environment:
+    Type: String
+    Description: Pool or environment name, eg. sandbox. Do not include "Cidrs-" here.
+
+  RequestSpecificCidr:
+    Type: String
+    Description: (Optional) Request specific CIDR, it will be checked to see if it is AVAILABLE or ALLOCATED.
+    Default: ''
+
+  VPCName:
+    Type: String
+    Description: VPC Name
+    Default: Test mock VPC
+
+Conditions:
+  RequestSpecificCidr: !Not [ !Equals [ !Ref RequestSpecificCidr, '' ] ]
+
+Resources:
+  VpcCidr:
+    Type: Custom::VpcCidrVender
+    Properties:
+      ServiceToken: !Sub arn:aws:sns:${AWS::Region}:${NetworkAccountID}:CIDR-Vending-Machine-${Environment}
+      SubnetMask: !Ref SubnetMask
+      VpcName: !Ref VPCName
+      RequestNetwork: !If [ RequestSpecificCidr, !Ref RequestSpecificCidr, !Ref AWS::NoValue ]
+
+  TestParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub test-vpc-cidr-${AWS::StackName}
+      Description: Testing the VPC CIDR vending machine
+      Type: String
+      Value: !Ref VpcCidr
+
+Outputs:
+  VpcCidr:
+    Value: !Ref VpcCidr
+    Description: VPC CIDR

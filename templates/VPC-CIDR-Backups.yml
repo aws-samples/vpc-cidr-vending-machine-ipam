@@ -1,0 +1,56 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: VPC CIDR vending machine DynamoDB backups
+  
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment label
+
+  DynamoDBARNs:
+    Type: CommaDelimitedList
+    Description: List of DynamoDB table ARNs
+
+
+Resources:
+  BackupVault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: !Sub VPC-CIDR-DynamoDB-${Environment}-backups
+
+  BackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub VPC-CIDR-DynamoDB-${Environment}-backup-plan
+        BackupPlanRule:
+          - RuleName: "RuleForDailyBackups"
+            TargetBackupVault: !Ref BackupVault
+            ScheduleExpression: "cron(0 5 ? * * *)"  
+
+  BackupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - backup.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
+
+  BackupSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref BackupPlan    
+      BackupSelection:
+        SelectionName: !Sub VPC-CIDR-DynamoDB-${Environment}-backup-selection
+        IamRoleArn: !GetAtt BackupRole.Arn
+        Resources: !Ref DynamoDBARNs
+
